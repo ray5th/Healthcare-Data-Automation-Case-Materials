@@ -16,9 +16,14 @@ Then open `http://localhost:5173`.
 - Medicare Claims Quality Measures: dataset `ijh5-nb2v`
 - State US Averages: dataset `xcdc-v8bm`
 
-The app filters the CMS API by `cms_certification_number_ccn` for facility and claims data, then by `state_or_nation` for state and national averages.
+The app filters the CMS API by `cms_certification_number_ccn` for facility and claims data, then by `state_or_nation` for state and national averages. The Kendall Lakes validation target (`686123`) also uses live CMS Provider Data Catalog values.
 
-For the provided Kendall Lakes validation target (`686123`), the app applies the historical sample values from the supplied PDF so the generated report matches the case-study reference output. Other CCNs continue to use live CMS values.
+## Bonus features included
+
+- All 12 hospitalization/ED report rows: four facility claims measures, each paired with state and national averages.
+- Editable Word export (`.docx`) in addition to PDF export.
+- Responsive metric cards with facility/state/national comparison bars.
+- Advanced error handling for invalid CCNs, CMS timeouts, unreachable CMS API responses, missing facilities, and incomplete CMS fields.
 
 ## Validation target
 
@@ -31,4 +36,5 @@ For the provided Kendall Lakes validation target (`686123`), the app applies the
 - `INFINITE — Managed by MEDELITE` is hardcoded branding and never replaced with the facility name.
 - Facility name override only changes the report body field `Name of Facility`.
 - Claims-based hospitalization/ED metrics use adjusted scores when available.
+- The supplied Kendall Lakes PDF contains historical sample values, so its star ratings may differ from the current CMS API response.
 - The app is browser-only and depends on the public CMS API allowing CORS from the deployed host.

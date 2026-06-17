@@ -5,39 +5,62 @@ const DATASETS = {
 };
 
 const API_BASE = "https://data.cms.gov/provider-data/api/1/datastore/query";
+const REQUEST_TIMEOUT_MS = 15000;
 
-const HISTORICAL_SAMPLE_VALUES = {
-  "686123": {
-    provider: {
-      provider_name: "KENDALL LAKES HEALTHCARE AND REHAB CENTER",
-      provider_address: "5280 SW 157TH AVE",
-      citytown: "MIAMI",
-      state: "FL",
-      zip_code: "",
-      number_of_certified_beds: "120",
-      overall_rating: "1",
-      health_inspection_rating: "1",
-      staffing_rating: "2",
-      qm_rating: "4",
-    },
-    claims: {
-      strHospitalization: "18.7",
-      strEd: "13.9",
-      ltHospitalization: "1.86",
-      ltEd: "6.94",
-    },
-    averages: {
-      strHospitalizationNational: "21.5",
-      strHospitalizationState: "23.8",
-      strEdNational: "11.6",
-      strEdState: "9.3",
-      ltHospitalizationNational: "1.65",
-      ltHospitalizationState: "1.95",
-      ltEdNational: "1.65",
-      ltEdState: "1.21",
+const METRIC_DEFINITIONS = [
+  {
+    title: "Short Term Hospitalization",
+    residentType: "STR",
+    format: "percent",
+    claimIncludes: ["short-stay", "rehospitalized"],
+    stateAverageKey: "percentage_of_short_stay_residents_who_were_rehospitalized__1d02",
+    nationalAverageKey: "percentage_of_short_stay_residents_who_were_rehospitalized__1d02",
+    rows: {
+      facility: "Short Term Hospitalization",
+      national: "STR National Avg. for Hospitalization",
+      state: "STR State National Avg. for Hospitalization",
     },
   },
-};
+  {
+    title: "Short Term ED Visit",
+    residentType: "STR",
+    format: "percent",
+    claimIncludes: ["short-stay", "emergency department"],
+    stateAverageKey: "percentage_of_short_stay_residents_who_had_an_outpatient_em_d911",
+    nationalAverageKey: "percentage_of_short_stay_residents_who_had_an_outpatient_em_d911",
+    rows: {
+      facility: "STR ED Visit",
+      national: "STR ED Visits National Avg.",
+      state: "STR ED Visits State Avg.",
+    },
+  },
+  {
+    title: "Long Term Hospitalization",
+    residentType: "LT",
+    format: "decimal",
+    claimIncludes: ["hospitalizations per 1000", "long-stay"],
+    stateAverageKey: "number_of_hospitalizations_per_1000_longstay_resident_days",
+    nationalAverageKey: "number_of_hospitalizations_per_1000_longstay_resident_days",
+    rows: {
+      facility: "LT Hospitalization",
+      national: "LT National Avg. for Hospitalization",
+      state: "LT State National Avg. for Hospitalization",
+    },
+  },
+  {
+    title: "Long Term ED Visit",
+    residentType: "LT",
+    format: "decimal",
+    claimIncludes: ["emergency department visits per 1000", "long-stay"],
+    stateAverageKey: "number_of_outpatient_emergency_department_visits_per_1000_l_de9d",
+    nationalAverageKey: "number_of_outpatient_emergency_department_visits_per_1000_l_de9d",
+    rows: {
+      facility: "ED Visit",
+      national: "LT ED Visits National Avg.",
+      state: "LT ED Visits State Avg.",
+    },
+  },
+];
 
 const fields = {
   ccn: document.querySelector("#ccn"),
@@ -55,6 +78,7 @@ const els = {
   manualForm: document.querySelector("#manualForm"),
   status: document.querySelector("#status"),
   downloadBtn: document.querySelector("#downloadBtn"),
+  wordBtn: document.querySelector("#wordBtn"),
   sampleBtn: document.querySelector("#sampleBtn"),
   stateBadge: document.querySelector("#stateBadge"),
   previewState: document.querySelector("#previewState"),
@@ -62,6 +86,7 @@ const els = {
   reportBody: document.querySelector("#reportBody"),
   profileRows: document.querySelector("#profileRows"),
   ratingRows: document.querySelector("#ratingRows"),
+  metricCards: document.querySelector("#metricCards"),
   metricRows: document.querySelector("#metricRows"),
   medicareLink: document.querySelector("#medicareLink"),
 };
@@ -85,11 +110,31 @@ function datasetUrl(datasetId, conditions = [], params = {}) {
 }
 
 async function fetchDataset(datasetId, conditions, params) {
-  const response = await fetch(datasetUrl(datasetId, conditions, params));
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(datasetUrl(datasetId, conditions, params), { signal: controller.signal });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("CMS API request timed out. Please try again.");
+    }
+    throw new Error("Unable to reach the CMS Provider Data Catalog API.");
+  } finally {
+    window.clearTimeout(timeout);
+  }
+
   if (!response.ok) {
     throw new Error(`CMS API returned ${response.status}`);
   }
-  const payload = await response.json();
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("CMS API returned an unreadable response.");
+  }
+
   return payload.results || [];
 }
 
@@ -103,6 +148,10 @@ async function fetchFacility(ccn) {
   }
 
   const provider = providerRows[0];
+  if (!provider.state) {
+    throw new Error(`CMS returned facility data for CCN ${ccn}, but the state field is missing.`);
+  }
+
   const [claimRows, stateAverageRows, nationAverageRows] = await Promise.all([
     fetchDataset(DATASETS.claims, [{ property: "cms_certification_number_ccn", value: ccn }]),
     fetchDataset(DATASETS.averages, [{ property: "state_or_nation", value: provider.state }]),
@@ -114,12 +163,20 @@ async function fetchFacility(ccn) {
     claims: claimRows,
     stateAverages: stateAverageRows[0] || {},
     nationalAverages: nationAverageRows[0] || {},
-    historicalSample: HISTORICAL_SAMPLE_VALUES[ccn] || null,
+    warnings: [
+      provider.provider_name ? "" : "CMS facility name is missing.",
+      provider.provider_address ? "" : "CMS facility address is missing.",
+      provider.overall_rating ? "" : "CMS overall rating is missing.",
+      provider.health_inspection_rating ? "" : "CMS health inspection rating is missing.",
+      provider.staffing_rating ? "" : "CMS staffing rating is missing.",
+      provider.qm_rating ? "" : "CMS quality rating is missing.",
+      claimRows.length >= METRIC_DEFINITIONS.length
+        ? ""
+        : "Some CMS claims-based hospitalization/ED measures were not available for this CCN.",
+      stateAverageRows.length ? "" : `CMS state averages were not available for ${provider.state}.`,
+      nationAverageRows.length ? "" : "CMS national averages were not available.",
+    ].filter(Boolean),
   };
-
-  if (data.historicalSample) {
-    data.provider = { ...data.provider, ...data.historicalSample.provider };
-  }
 
   return data;
 }
@@ -155,6 +212,15 @@ function formatDecimal(value) {
   return Number.isFinite(number) ? number.toFixed(2) : valueOrDash(value);
 }
 
+function formatMetric(value, format) {
+  return format === "percent" ? formatPercent(value) : formatDecimal(value);
+}
+
+function numericValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function getManualValues() {
   return {
     facilityOverride: fields.facilityOverride.value.trim(),
@@ -170,15 +236,55 @@ function getManualValues() {
 function getClaimScore(descriptionIncludes) {
   const row = currentData?.claims.find((claim) =>
     descriptionIncludes.every((needle) =>
-      claim.measure_description.toLowerCase().includes(needle.toLowerCase()),
+      valueOrDash(claim.measure_description).toLowerCase().includes(needle.toLowerCase()),
     ),
   );
   return row?.adjusted_score;
 }
 
+function buildMetricGroups() {
+  if (!currentData) return [];
+  const { stateAverages, nationalAverages } = currentData;
+
+  return METRIC_DEFINITIONS.map((definition) => {
+    const facility = getClaimScore(definition.claimIncludes);
+    const state = stateAverages[definition.stateAverageKey];
+    const national = nationalAverages[definition.nationalAverageKey];
+    const values = [facility, state, national].map(numericValue).filter((value) => value !== null);
+    const max = Math.max(...values, 1);
+
+    return {
+      ...definition,
+      values: {
+        facility,
+        state,
+        national,
+      },
+      formatted: {
+        facility: formatMetric(facility, definition.format),
+        state: formatMetric(state, definition.format),
+        national: formatMetric(national, definition.format),
+      },
+      barWidths: {
+        facility: numericValue(facility) === null ? 0 : Math.max(4, (numericValue(facility) / max) * 100),
+        state: numericValue(state) === null ? 0 : Math.max(4, (numericValue(state) / max) * 100),
+        national: numericValue(national) === null ? 0 : Math.max(4, (numericValue(national) / max) * 100),
+      },
+    };
+  });
+}
+
+function buildMetricRows() {
+  return buildMetricGroups().flatMap((group) => [
+    [group.rows.facility, group.formatted.facility],
+    [group.rows.national, group.formatted.national],
+    [group.rows.state, group.formatted.state],
+  ]);
+}
+
 function buildReportRows() {
   if (!currentData) return { profile: [], ratings: [], metrics: [] };
-  const { provider, stateAverages, nationalAverages } = currentData;
+  const { provider } = currentData;
   const manual = getManualValues();
   const location = [
     titleCase(provider.provider_address),
@@ -188,12 +294,6 @@ function buildReportRows() {
   ]
     .filter(Boolean)
     .join(", ");
-
-  const strHospitalization = getClaimScore(["short-stay", "rehospitalized"]);
-  const strEd = getClaimScore(["short-stay", "emergency department"]);
-  const ltHospitalization = getClaimScore(["hospitalizations per 1000", "long-stay"]);
-  const ltEd = getClaimScore(["emergency department visits per 1000", "long-stay"]);
-  const sample = currentData.historicalSample;
 
   return {
     profile: [
@@ -213,68 +313,7 @@ function buildReportRows() {
       ["Staffing", provider.staffing_rating],
       ["Quality of Resident Care", provider.qm_rating],
     ],
-    metrics: [
-      ["Short Term Hospitalization", formatPercent(sample?.claims.strHospitalization || strHospitalization)],
-      [
-        "STR National Avg. for Hospitalization",
-        formatPercent(
-          sample?.averages.strHospitalizationNational ||
-            nationalAverages.percentage_of_short_stay_residents_who_were_rehospitalized__1d02,
-        ),
-      ],
-      [
-        "STR State National Avg. for Hospitalization",
-        formatPercent(
-          sample?.averages.strHospitalizationState ||
-            stateAverages.percentage_of_short_stay_residents_who_were_rehospitalized__1d02,
-        ),
-      ],
-      ["STR ED Visit", formatPercent(sample?.claims.strEd || strEd)],
-      [
-        "STR ED Visits National Avg.",
-        formatPercent(
-          sample?.averages.strEdNational ||
-            nationalAverages.percentage_of_short_stay_residents_who_had_an_outpatient_em_d911,
-        ),
-      ],
-      [
-        "STR ED Visits State Avg.",
-        formatPercent(
-          sample?.averages.strEdState ||
-            stateAverages.percentage_of_short_stay_residents_who_had_an_outpatient_em_d911,
-        ),
-      ],
-      ["LT Hospitalization", formatDecimal(sample?.claims.ltHospitalization || ltHospitalization)],
-      [
-        "LT National Avg. for Hospitalization",
-        formatDecimal(
-          sample?.averages.ltHospitalizationNational ||
-            nationalAverages.number_of_hospitalizations_per_1000_longstay_resident_days,
-        ),
-      ],
-      [
-        "LT State National Avg. for Hospitalization",
-        formatDecimal(
-          sample?.averages.ltHospitalizationState ||
-            stateAverages.number_of_hospitalizations_per_1000_longstay_resident_days,
-        ),
-      ],
-      ["ED Visit", formatDecimal(sample?.claims.ltEd || ltEd)],
-      [
-        "LT ED Visits National Avg.",
-        formatDecimal(
-          sample?.averages.ltEdNational ||
-            nationalAverages.number_of_outpatient_emergency_department_visits_per_1000_l_de9d,
-        ),
-      ],
-      [
-        "LT ED Visits State Avg.",
-        formatDecimal(
-          sample?.averages.ltEdState ||
-            stateAverages.number_of_outpatient_emergency_department_visits_per_1000_l_de9d,
-        ),
-      ],
-    ],
+    metrics: buildMetricRows(),
   };
 }
 
@@ -285,7 +324,45 @@ function renderRows(container, rows) {
     const dd = document.createElement("dd");
     dt.textContent = label;
     dd.textContent = valueOrDash(value);
+    if (dd.textContent === "—") dd.classList.add("unavailable");
     container.append(dt, dd);
+  });
+}
+
+function renderMetricCards(groups) {
+  els.metricCards.innerHTML = "";
+  groups.forEach((group) => {
+    const card = document.createElement("article");
+    card.className = "metric-card";
+    const title = document.createElement("h3");
+    title.textContent = `${group.title} (${group.residentType})`;
+    card.append(title);
+
+    [
+      ["Facility", group.formatted.facility, group.barWidths.facility],
+      ["State Avg.", group.formatted.state, group.barWidths.state],
+      ["National", group.formatted.national, group.barWidths.national],
+    ].forEach(([label, value, width]) => {
+      const row = document.createElement("div");
+      row.className = "metric-bar";
+      const labelEl = document.createElement("span");
+      const track = document.createElement("span");
+      const fill = document.createElement("span");
+      const valueEl = document.createElement("span");
+
+      labelEl.textContent = label;
+      track.className = "bar-track";
+      fill.className = "bar-fill";
+      fill.style.setProperty("--bar-width", `${width}%`);
+      valueEl.textContent = value;
+      if (value === "—") valueEl.classList.add("unavailable");
+
+      track.append(fill);
+      row.append(labelEl, track, valueEl);
+      card.append(row);
+    });
+
+    els.metricCards.append(card);
   });
 }
 
@@ -300,6 +377,7 @@ function renderReport() {
   const rows = buildReportRows();
   renderRows(els.profileRows, rows.profile);
   renderRows(els.ratingRows, rows.ratings);
+  renderMetricCards(buildMetricGroups());
   renderRows(els.metricRows, rows.metrics);
   els.stateBadge.textContent = currentData.provider.state || "--";
   els.previewState.textContent = currentData.provider.state || "--";
@@ -307,6 +385,7 @@ function renderReport() {
   els.emptyState.classList.add("hidden");
   els.reportBody.classList.remove("hidden");
   els.downloadBtn.disabled = false;
+  els.wordBtn.disabled = false;
   lucide.createIcons();
 }
 
@@ -324,16 +403,23 @@ async function handleLookup(event) {
   }
 
   els.downloadBtn.disabled = true;
+  els.wordBtn.disabled = true;
   setStatus("Fetching CMS facility, claims, and average data...");
 
   try {
     currentData = await fetchFacility(ccn);
     fields.facilityOverride.value = "";
     renderReport();
-    const sourceLabel = currentData.historicalSample ? " using historical sample target values" : "";
-    setStatus(`Loaded ${titleCase(currentData.provider.provider_name)}${sourceLabel}.`, "success");
+    const warningText = currentData.warnings.length ? ` ${currentData.warnings.join(" ")}` : "";
+    setStatus(
+      `Loaded ${titleCase(currentData.provider.provider_name)} from CMS Provider Data Catalog.${warningText}`,
+      currentData.warnings.length ? "warning" : "success",
+    );
   } catch (error) {
     currentData = null;
+    els.downloadBtn.disabled = true;
+    els.wordBtn.disabled = true;
+    els.metricCards.innerHTML = "";
     els.reportBody.classList.add("hidden");
     els.emptyState.classList.remove("hidden");
     setStatus(error.message, "error");
@@ -436,8 +522,122 @@ function downloadPdf() {
   doc.save(`${name || "facility"}-assessment-snapshot.pdf`);
 }
 
+function reportFilename(extension) {
+  const rows = buildReportRows();
+  const name = rows.profile[0]?.[1] || "facility";
+  const slug = name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+  return `${slug || "facility"}-assessment-snapshot.${extension}`;
+}
+
+function makeTableRows(rows) {
+  const { TableRow, TableCell, Paragraph, TextRun, WidthType } = window.docx;
+  return rows.map(
+    ([label, value]) =>
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: 38, type: WidthType.PERCENTAGE },
+            children: [new Paragraph({ children: [new TextRun({ text: label, bold: true })] })],
+          }),
+          new TableCell({
+            width: { size: 62, type: WidthType.PERCENTAGE },
+            children: [new Paragraph(valueOrDash(value))],
+          }),
+        ],
+      }),
+  );
+}
+
+function makeSection(title, rows) {
+  const { Paragraph, TextRun, Table, WidthType } = window.docx;
+  return [
+    new Paragraph({
+      spacing: { before: 240, after: 100 },
+      children: [new TextRun({ text: title.toUpperCase(), bold: true, color: "083B34" })],
+    }),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: makeTableRows(rows),
+    }),
+  ];
+}
+
+async function downloadWord() {
+  if (!currentData) return;
+  if (!window.docx) {
+    setStatus("Word export library did not load. Check your connection and refresh.", "error");
+    return;
+  }
+
+  const {
+    Document,
+    Packer,
+    Paragraph,
+    TextRun,
+    ExternalHyperlink,
+    AlignmentType,
+  } = window.docx;
+  const rows = buildReportRows();
+  const state = currentData.provider.state || "--";
+  const link = medicareUrl();
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {},
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: "INFINITE — Managed by MEDELITE", bold: true, color: "083B34" })],
+          }),
+          new Paragraph({
+            spacing: { after: 240 },
+            children: [
+              new TextRun({
+                text: `FACILITY ASSESSMENT SNAPSHOT ${state}`,
+                bold: true,
+                size: 32,
+                color: "083B34",
+              }),
+            ],
+          }),
+          ...makeSection("Facility Profile", rows.profile),
+          ...makeSection("Star Ratings", rows.ratings),
+          ...makeSection("Hospitalization & ED Metrics", rows.metrics),
+          new Paragraph({
+            spacing: { before: 240 },
+            alignment: AlignmentType.LEFT,
+            children: [
+              new ExternalHyperlink({
+                link,
+                children: [
+                  new TextRun({
+                    text: "Medicare Care Compare source profile",
+                    style: "Hyperlink",
+                  }),
+                ],
+              }),
+            ],
+          }),
+          new Paragraph(link),
+        ],
+      },
+    ],
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = reportFilename("docx");
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 els.lookupForm.addEventListener("submit", handleLookup);
 els.manualForm.addEventListener("input", renderReport);
 els.downloadBtn.addEventListener("click", downloadPdf);
+els.wordBtn.addEventListener("click", downloadWord);
 els.sampleBtn.addEventListener("click", loadSample);
 lucide.createIcons();

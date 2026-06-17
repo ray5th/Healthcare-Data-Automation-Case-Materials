@@ -174,6 +174,10 @@ button svg {
   color: var(--accent);
 }
 
+.status.warning {
+  color: #8a5b00;
+}
+
 .status.success {
   color: var(--brand);
 }
@@ -189,7 +193,8 @@ button svg {
   grid-column: 1 / -1;
 }
 
-.download-button {
+.download-button,
+.word-button {
   width: 100%;
   margin-top: 18px;
   background: var(--accent);
@@ -197,6 +202,15 @@ button svg {
 
 .download-button:hover {
   background: #942d1e;
+}
+
+.word-button {
+  margin-top: 10px;
+  background: var(--brand);
+}
+
+.word-button:hover {
+  background: var(--brand-dark);
 }
 
 .report-preview {
@@ -297,6 +311,67 @@ h2 {
   grid-template-columns: minmax(220px, 0.7fr) minmax(80px, 0.3fr);
 }
 
+.metric-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.metric-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfb;
+}
+
+.metric-card h3 {
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.metric-bar {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 64px;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.bar-track {
+  height: 9px;
+  overflow: hidden;
+  background: #e7ede9;
+  border-radius: 999px;
+}
+
+.bar-fill {
+  display: block;
+  width: var(--bar-width, 0%);
+  height: 100%;
+  background: var(--brand);
+  border-radius: inherit;
+}
+
+.metric-bar:nth-of-type(3) .bar-fill {
+  background: var(--gold);
+}
+
+.metric-bar:nth-of-type(4) .bar-fill {
+  background: var(--accent);
+}
+
+.unavailable {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .source-link {
   display: inline-flex;
   align-items: center;
@@ -334,7 +409,8 @@ h2 {
 
   .manual-grid,
   .data-list,
-  .compact {
+  .compact,
+  .metric-cards {
     grid-template-columns: 1fr;
   }
 
