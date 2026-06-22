@@ -4,7 +4,13 @@ const DATASETS = {
   averages: "xcdc-v8bm",
 };
 
-const API_BASE = "https://data.cms.gov/provider-data/api/1/datastore/query";
+const isVercel = window.location.hostname.endsWith(".vercel.app") || 
+                 (window.location.hostname === "localhost" && window.location.port !== "5173") ||
+                 (window.location.hostname === "127.0.0.1" && window.location.port !== "5173");
+
+const API_BASE = isVercel
+  ? "/api/cms"
+  : "https://data.cms.gov/provider-data/api/1/datastore/query";
 const REQUEST_TIMEOUT_MS = 15000;
 
 const METRIC_DEFINITIONS = [
@@ -94,7 +100,7 @@ const els = {
 let currentData = null;
 
 function datasetUrl(datasetId, conditions = [], params = {}) {
-  const url = new URL(`${API_BASE}/${datasetId}/0`);
+  const url = new URL(`${API_BASE}/${datasetId}/0`, window.location.origin);
   url.searchParams.set("count", "true");
   url.searchParams.set("results", "true");
   url.searchParams.set("schema", "true");
