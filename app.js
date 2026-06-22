@@ -4,9 +4,7 @@ const DATASETS = {
   averages: "xcdc-v8bm",
 };
 
-const isVercel = window.location.hostname.endsWith(".vercel.app") || 
-                 (window.location.hostname === "localhost" && window.location.port !== "5173") ||
-                 (window.location.hostname === "127.0.0.1" && window.location.port !== "5173");
+const isVercel = window.location.hostname.endsWith(".vercel.app");
 
 const API_BASE = isVercel
   ? "/api/cms"
@@ -98,6 +96,7 @@ const els = {
 };
 
 let currentData = null;
+let activeLookupId = 0;
 
 function datasetUrl(datasetId, conditions = [], params = {}) {
   const url = new URL(`${API_BASE}/${datasetId}/0`, window.location.origin);
@@ -206,6 +205,11 @@ function titleCase(value) {
     .join(" ");
 }
 
+function optionalTitleCase(value) {
+  if (value === undefined || value === null || value === "") return "";
+  return titleCase(value);
+}
+
 function formatPercent(value) {
   if (value === undefined || value === null || value === "") return "—";
   const number = Number(value);
@@ -293,8 +297,8 @@ function buildReportRows() {
   const { provider } = currentData;
   const manual = getManualValues();
   const location = [
-    titleCase(provider.provider_address),
-    titleCase(provider.citytown),
+    optionalTitleCase(provider.provider_address),
+    optionalTitleCase(provider.citytown),
     provider.state,
     provider.zip_code,
   ]
@@ -392,7 +396,7 @@ function renderReport() {
   els.reportBody.classList.remove("hidden");
   els.downloadBtn.disabled = false;
   els.wordBtn.disabled = false;
-  lucide.createIcons();
+  refreshIcons();
 }
 
 function setStatus(message, type = "") {
@@ -400,8 +404,15 @@ function setStatus(message, type = "") {
   els.status.className = `status ${type}`.trim();
 }
 
+function refreshIcons() {
+  if (window.lucide?.createIcons) {
+    window.lucide.createIcons();
+  }
+}
+
 async function handleLookup(event) {
   event.preventDefault();
+  const lookupId = ++activeLookupId;
   const ccn = fields.ccn.value.trim();
   if (!/^\d{6}$/.test(ccn)) {
     setStatus("Enter a six-digit CCN.", "error");
@@ -413,7 +424,9 @@ async function handleLookup(event) {
   setStatus("Fetching CMS facility, claims, and average data...");
 
   try {
-    currentData = await fetchFacility(ccn);
+    const data = await fetchFacility(ccn);
+    if (lookupId !== activeLookupId) return;
+    currentData = data;
     fields.facilityOverride.value = "";
     renderReport();
     const warningText = currentData.warnings.length ? ` ${currentData.warnings.join(" ")}` : "";
@@ -422,6 +435,7 @@ async function handleLookup(event) {
       currentData.warnings.length ? "warning" : "success",
     );
   } catch (error) {
+    if (lookupId !== activeLookupId) return;
     currentData = null;
     els.downloadBtn.disabled = true;
     els.wordBtn.disabled = true;
@@ -640,4 +654,4 @@ els.manualForm.addEventListener("input", renderReport);
 els.downloadBtn.addEventListener("click", downloadPdf);
 els.wordBtn.addEventListener("click", downloadWord);
 els.sampleBtn.addEventListener("click", loadSample);
-lucide.createIcons();
+refreshIcons();
