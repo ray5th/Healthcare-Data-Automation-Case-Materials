@@ -95,9 +95,9 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
-test("localhost uses the direct CMS API on any port", () => {
+test("API requests use the same-origin Netlify proxy", () => {
   const { api } = loadApp("localhost", "8000");
-  assert.equal(api.apiBase, "https://data.cms.gov/provider-data/api/1/datastore/query");
+  assert.equal(api.apiBase, "/api/cms");
 });
 
 test("missing address fields are omitted instead of rendered as dashes", () => {

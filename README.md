@@ -2,13 +2,23 @@
 
 Static micro-app for the Medelite technical case study. It lets a user enter a nursing home CCN, pulls public CMS Provider Data Catalog records, accepts Medelite-only manual inputs, previews the Facility Assessment Snapshot, and downloads a polished PDF.
 
-## Run locally
+## Run locally with the Netlify proxy
 
 ```bash
-python3 -m http.server 5173
+npx netlify dev
 ```
 
-Then open `http://localhost:5173`.
+Open the local URL printed by Netlify CLI, normally `http://localhost:8888`.
+
+## Deploy on Netlify
+
+1. In Netlify, select **Add new project** and **Import an existing project**.
+2. Connect the GitHub repository.
+3. Leave the build command empty.
+4. Set the publish directory to `.`.
+5. Deploy the project.
+
+`netlify.toml` rewrites `/api/cms/*` to the CMS Provider Data Catalog API. The browser only calls the Netlify site’s own origin, avoiding the CMS browser CORS restriction. This uses a CDN proxy rewrite rather than a Netlify Function.
 
 ## CMS data sources
 
@@ -37,4 +47,4 @@ The app filters the CMS API by `cms_certification_number_ccn` for facility and c
 - Facility name override only changes the report body field `Name of Facility`.
 - Claims-based hospitalization/ED metrics use adjusted scores when available.
 - The supplied Kendall Lakes PDF contains historical sample values, so its star ratings may differ from the current CMS API response.
-- The app is browser-only and depends on the public CMS API allowing CORS from the deployed host.
+- The app depends on the Netlify proxy rewrite in `netlify.toml`; serving it with a basic static server will not provide the `/api/cms/*` endpoint.

@@ -1,0 +1,8 @@
+[build]
+  publish = "."
+
+[[redirects]]
+  from = "/api/cms/*"
+  to = "https://data.cms.gov/provider-data/api/1/datastore/query/:splat"
+  status = 200
+  force = true

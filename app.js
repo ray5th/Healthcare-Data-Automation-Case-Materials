@@ -4,11 +4,7 @@ const DATASETS = {
   averages: "xcdc-v8bm",
 };
 
-const isVercel = window.location.hostname.endsWith(".vercel.app");
-
-const API_BASE = isVercel
-  ? "/api/cms"
-  : "https://data.cms.gov/provider-data/api/1/datastore/query";
+const API_BASE = "/api/cms";
 const REQUEST_TIMEOUT_MS = 15000;
 
 const METRIC_DEFINITIONS = [
