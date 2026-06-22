@@ -428,12 +428,6 @@ async function handleLookup(event) {
 
 function loadSample() {
   fields.ccn.value = "686123";
-  fields.emr.value = "PCC";
-  fields.currentCensus.value = "112";
-  fields.patientType.value = "Long-term & Short-term";
-  fields.previousCoverage.value = "Yes";
-  fields.providerPerformance.value = "About 30 patients/day";
-  fields.medicalCoverage.value = "Optometry, PCP, Podiatry";
   els.lookupForm.requestSubmit();
 }
 
