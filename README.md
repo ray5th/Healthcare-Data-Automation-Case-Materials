@@ -28,11 +28,10 @@ Open the local URL printed by Netlify CLI, normally `http://localhost:8888`.
 
 The app filters the CMS API by `cms_certification_number_ccn` for facility and claims data, then by `state_or_nation` for state and national averages. The Kendall Lakes validation target (`686123`) also uses live CMS Provider Data Catalog values.
 
-## Bonus features included
+## Included features
 
 - All 12 hospitalization/ED report rows: four facility claims measures, each paired with state and national averages.
-- Editable Word export (`.docx`) in addition to PDF export.
-- Responsive metric cards with facility/state/national comparison bars.
+- A focused report preview matching the supplied Facility Assessment Snapshot structure.
 - Advanced error handling for invalid CCNs, CMS timeouts, unreachable CMS API responses, missing facilities, and incomplete CMS fields.
 
 ## Validation target

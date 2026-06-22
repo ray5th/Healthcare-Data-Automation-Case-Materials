@@ -78,15 +78,11 @@ const els = {
   manualForm: document.querySelector("#manualForm"),
   status: document.querySelector("#status"),
   downloadBtn: document.querySelector("#downloadBtn"),
-  wordBtn: document.querySelector("#wordBtn"),
-  sampleBtn: document.querySelector("#sampleBtn"),
-  stateBadge: document.querySelector("#stateBadge"),
   previewState: document.querySelector("#previewState"),
   emptyState: document.querySelector("#emptyState"),
   reportBody: document.querySelector("#reportBody"),
   profileRows: document.querySelector("#profileRows"),
   ratingRows: document.querySelector("#ratingRows"),
-  metricCards: document.querySelector("#metricCards"),
   metricRows: document.querySelector("#metricRows"),
   medicareLink: document.querySelector("#medicareLink"),
 };
@@ -222,11 +218,6 @@ function formatMetric(value, format) {
   return format === "percent" ? formatPercent(value) : formatDecimal(value);
 }
 
-function numericValue(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
 function getManualValues() {
   return {
     facilityOverride: fields.facilityOverride.value.trim(),
@@ -256,9 +247,6 @@ function buildMetricGroups() {
     const facility = getClaimScore(definition.claimIncludes);
     const state = stateAverages[definition.stateAverageKey];
     const national = nationalAverages[definition.nationalAverageKey];
-    const values = [facility, state, national].map(numericValue).filter((value) => value !== null);
-    const max = Math.max(...values, 1);
-
     return {
       ...definition,
       values: {
@@ -270,11 +258,6 @@ function buildMetricGroups() {
         facility: formatMetric(facility, definition.format),
         state: formatMetric(state, definition.format),
         national: formatMetric(national, definition.format),
-      },
-      barWidths: {
-        facility: numericValue(facility) === null ? 0 : Math.max(4, (numericValue(facility) / max) * 100),
-        state: numericValue(state) === null ? 0 : Math.max(4, (numericValue(state) / max) * 100),
-        national: numericValue(national) === null ? 0 : Math.max(4, (numericValue(national) / max) * 100),
       },
     };
   });
@@ -335,43 +318,6 @@ function renderRows(container, rows) {
   });
 }
 
-function renderMetricCards(groups) {
-  els.metricCards.innerHTML = "";
-  groups.forEach((group) => {
-    const card = document.createElement("article");
-    card.className = "metric-card";
-    const title = document.createElement("h3");
-    title.textContent = `${group.title} (${group.residentType})`;
-    card.append(title);
-
-    [
-      ["Facility", group.formatted.facility, group.barWidths.facility],
-      ["State Avg.", group.formatted.state, group.barWidths.state],
-      ["National", group.formatted.national, group.barWidths.national],
-    ].forEach(([label, value, width]) => {
-      const row = document.createElement("div");
-      row.className = "metric-bar";
-      const labelEl = document.createElement("span");
-      const track = document.createElement("span");
-      const fill = document.createElement("span");
-      const valueEl = document.createElement("span");
-
-      labelEl.textContent = label;
-      track.className = "bar-track";
-      fill.className = "bar-fill";
-      fill.style.setProperty("--bar-width", `${width}%`);
-      valueEl.textContent = value;
-      if (value === "—") valueEl.classList.add("unavailable");
-
-      track.append(fill);
-      row.append(labelEl, track, valueEl);
-      card.append(row);
-    });
-
-    els.metricCards.append(card);
-  });
-}
-
 function medicareUrl() {
   const provider = currentData?.provider;
   if (!provider) return "#";
@@ -383,15 +329,12 @@ function renderReport() {
   const rows = buildReportRows();
   renderRows(els.profileRows, rows.profile);
   renderRows(els.ratingRows, rows.ratings);
-  renderMetricCards(buildMetricGroups());
   renderRows(els.metricRows, rows.metrics);
-  els.stateBadge.textContent = currentData.provider.state || "--";
   els.previewState.textContent = currentData.provider.state || "--";
   els.medicareLink.href = medicareUrl();
   els.emptyState.classList.add("hidden");
   els.reportBody.classList.remove("hidden");
   els.downloadBtn.disabled = false;
-  els.wordBtn.disabled = false;
   refreshIcons();
 }
 
@@ -416,7 +359,6 @@ async function handleLookup(event) {
   }
 
   els.downloadBtn.disabled = true;
-  els.wordBtn.disabled = true;
   setStatus("Fetching CMS facility, claims, and average data...");
 
   try {
@@ -434,17 +376,10 @@ async function handleLookup(event) {
     if (lookupId !== activeLookupId) return;
     currentData = null;
     els.downloadBtn.disabled = true;
-    els.wordBtn.disabled = true;
-    els.metricCards.innerHTML = "";
     els.reportBody.classList.add("hidden");
     els.emptyState.classList.remove("hidden");
     setStatus(error.message, "error");
   }
-}
-
-function loadSample() {
-  fields.ccn.value = "686123";
-  els.lookupForm.requestSubmit();
 }
 
 function addPdfRows(doc, title, rows, y) {
@@ -532,122 +467,7 @@ function downloadPdf() {
   doc.save(`${name || "facility"}-assessment-snapshot.pdf`);
 }
 
-function reportFilename(extension) {
-  const rows = buildReportRows();
-  const name = rows.profile[0]?.[1] || "facility";
-  const slug = name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
-  return `${slug || "facility"}-assessment-snapshot.${extension}`;
-}
-
-function makeTableRows(rows) {
-  const { TableRow, TableCell, Paragraph, TextRun, WidthType } = window.docx;
-  return rows.map(
-    ([label, value]) =>
-      new TableRow({
-        children: [
-          new TableCell({
-            width: { size: 38, type: WidthType.PERCENTAGE },
-            children: [new Paragraph({ children: [new TextRun({ text: label, bold: true })] })],
-          }),
-          new TableCell({
-            width: { size: 62, type: WidthType.PERCENTAGE },
-            children: [new Paragraph(valueOrDash(value))],
-          }),
-        ],
-      }),
-  );
-}
-
-function makeSection(title, rows) {
-  const { Paragraph, TextRun, Table, WidthType } = window.docx;
-  return [
-    new Paragraph({
-      spacing: { before: 240, after: 100 },
-      children: [new TextRun({ text: title.toUpperCase(), bold: true, color: "083B34" })],
-    }),
-    new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: makeTableRows(rows),
-    }),
-  ];
-}
-
-async function downloadWord() {
-  if (!currentData) return;
-  if (!window.docx) {
-    setStatus("Word export library did not load. Check your connection and refresh.", "error");
-    return;
-  }
-
-  const {
-    Document,
-    Packer,
-    Paragraph,
-    TextRun,
-    ExternalHyperlink,
-    AlignmentType,
-  } = window.docx;
-  const rows = buildReportRows();
-  const state = currentData.provider.state || "--";
-  const link = medicareUrl();
-
-  const doc = new Document({
-    sections: [
-      {
-        properties: {},
-        children: [
-          new Paragraph({
-            children: [new TextRun({ text: "INFINITE — Managed by MEDELITE", bold: true, color: "083B34" })],
-          }),
-          new Paragraph({
-            spacing: { after: 240 },
-            children: [
-              new TextRun({
-                text: `FACILITY ASSESSMENT SNAPSHOT ${state}`,
-                bold: true,
-                size: 32,
-                color: "083B34",
-              }),
-            ],
-          }),
-          ...makeSection("Facility Profile", rows.profile),
-          ...makeSection("Star Ratings", rows.ratings),
-          ...makeSection("Hospitalization & ED Metrics", rows.metrics),
-          new Paragraph({
-            spacing: { before: 240 },
-            alignment: AlignmentType.LEFT,
-            children: [
-              new ExternalHyperlink({
-                link,
-                children: [
-                  new TextRun({
-                    text: "Medicare Care Compare source profile",
-                    style: "Hyperlink",
-                  }),
-                ],
-              }),
-            ],
-          }),
-          new Paragraph(link),
-        ],
-      },
-    ],
-  });
-
-  const blob = await Packer.toBlob(doc);
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = reportFilename("docx");
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
 els.lookupForm.addEventListener("submit", handleLookup);
 els.manualForm.addEventListener("input", renderReport);
 els.downloadBtn.addEventListener("click", downloadPdf);
-els.wordBtn.addEventListener("click", downloadWord);
-els.sampleBtn.addEventListener("click", loadSample);
 refreshIcons();
