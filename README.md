@@ -32,6 +32,8 @@ The app filters the CMS API by `cms_certification_number_ccn` for facility and c
 
 - All 12 hospitalization/ED report rows: four facility claims measures, each paired with state and national averages.
 - A focused report preview matching the supplied Facility Assessment Snapshot structure.
+- Editable Word (`.docx`) export alongside the required PDF export.
+- Responsive facility/state/national comparison cards for the four claims-based measures.
 - Advanced error handling for invalid CCNs, CMS timeouts, unreachable CMS API responses, missing facilities, and incomplete CMS fields.
 
 ## Validation target

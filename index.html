@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="styles.css" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -84,10 +85,16 @@
             </label>
           </form>
 
-          <button id="downloadBtn" class="download-button" type="button" disabled>
-            <i data-lucide="download"></i>
-            Download PDF
-          </button>
+          <div class="export-actions">
+            <button id="downloadBtn" class="download-button" type="button" disabled>
+              <i data-lucide="download"></i>
+              Download PDF
+            </button>
+            <button id="wordBtn" class="word-button" type="button" disabled>
+              <i data-lucide="file-text"></i>
+              Download Word
+            </button>
+          </div>
         </aside>
 
         <section class="report-preview" aria-label="Report preview">
@@ -111,6 +118,7 @@
             <div class="section-title">Star Ratings</div>
             <dl id="ratingRows" class="data-list compact"></dl>
             <div class="section-title">Hospitalization & ED Metrics</div>
+            <div id="metricCards" class="metric-cards"></div>
             <dl id="metricRows" class="data-list compact"></dl>
             <a id="medicareLink" class="source-link" target="_blank" rel="noreferrer">
               <i data-lucide="external-link"></i>

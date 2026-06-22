@@ -78,11 +78,13 @@ const els = {
   manualForm: document.querySelector("#manualForm"),
   status: document.querySelector("#status"),
   downloadBtn: document.querySelector("#downloadBtn"),
+  wordBtn: document.querySelector("#wordBtn"),
   previewState: document.querySelector("#previewState"),
   emptyState: document.querySelector("#emptyState"),
   reportBody: document.querySelector("#reportBody"),
   profileRows: document.querySelector("#profileRows"),
   ratingRows: document.querySelector("#ratingRows"),
+  metricCards: document.querySelector("#metricCards"),
   metricRows: document.querySelector("#metricRows"),
   medicareLink: document.querySelector("#medicareLink"),
 };
@@ -122,7 +124,16 @@ async function fetchDataset(datasetId, conditions, params) {
   }
 
   if (!response.ok) {
-    throw new Error(`CMS API returned ${response.status}`);
+    if (response.status === 404) {
+      throw new Error("CMS proxy endpoint was not found. Confirm the Netlify rewrite is deployed.");
+    }
+    if (response.status === 429) {
+      throw new Error("CMS is receiving too many requests. Wait a moment and try again.");
+    }
+    if ([502, 503, 504].includes(response.status)) {
+      throw new Error("CMS is temporarily unavailable through the proxy. Please try again shortly.");
+    }
+    throw new Error(`CMS API returned an unexpected ${response.status} response.`);
   }
 
   let payload;
@@ -132,7 +143,11 @@ async function fetchDataset(datasetId, conditions, params) {
     throw new Error("CMS API returned an unreadable response.");
   }
 
-  return payload.results || [];
+  if (!Array.isArray(payload.results)) {
+    throw new Error("CMS API response did not include the expected results.");
+  }
+
+  return payload.results;
 }
 
 async function fetchFacility(ccn) {
@@ -218,6 +233,11 @@ function formatMetric(value, format) {
   return format === "percent" ? formatPercent(value) : formatDecimal(value);
 }
 
+function numericValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function getManualValues() {
   return {
     facilityOverride: fields.facilityOverride.value.trim(),
@@ -247,6 +267,8 @@ function buildMetricGroups() {
     const facility = getClaimScore(definition.claimIncludes);
     const state = stateAverages[definition.stateAverageKey];
     const national = nationalAverages[definition.nationalAverageKey];
+    const values = [facility, state, national].map(numericValue).filter((value) => value !== null);
+    const max = Math.max(...values, 1);
     return {
       ...definition,
       values: {
@@ -258,6 +280,11 @@ function buildMetricGroups() {
         facility: formatMetric(facility, definition.format),
         state: formatMetric(state, definition.format),
         national: formatMetric(national, definition.format),
+      },
+      barWidths: {
+        facility: numericValue(facility) === null ? 0 : Math.max(4, (numericValue(facility) / max) * 100),
+        state: numericValue(state) === null ? 0 : Math.max(4, (numericValue(state) / max) * 100),
+        national: numericValue(national) === null ? 0 : Math.max(4, (numericValue(national) / max) * 100),
       },
     };
   });
@@ -318,6 +345,45 @@ function renderRows(container, rows) {
   });
 }
 
+function renderMetricCards(groups) {
+  els.metricCards.innerHTML = "";
+  groups.forEach((group) => {
+    const card = document.createElement("article");
+    card.className = "metric-card";
+    const title = document.createElement("h3");
+    title.textContent = group.title;
+    const badge = document.createElement("span");
+    badge.className = "resident-badge";
+    badge.textContent = group.residentType;
+    title.append(badge);
+    card.append(title);
+
+    [
+      ["Facility", group.formatted.facility, group.barWidths.facility],
+      ["State", group.formatted.state, group.barWidths.state],
+      ["National", group.formatted.national, group.barWidths.national],
+    ].forEach(([label, value, width], index) => {
+      const row = document.createElement("div");
+      row.className = "metric-bar";
+      const labelEl = document.createElement("span");
+      const track = document.createElement("span");
+      const fill = document.createElement("span");
+      const valueEl = document.createElement("span");
+      labelEl.textContent = label;
+      track.className = "bar-track";
+      fill.className = `bar-fill bar-${index}`;
+      fill.style.setProperty("--bar-width", `${width}%`);
+      valueEl.textContent = value;
+      if (value === "—") valueEl.classList.add("unavailable");
+      track.append(fill);
+      row.append(labelEl, track, valueEl);
+      card.append(row);
+    });
+
+    els.metricCards.append(card);
+  });
+}
+
 function medicareUrl() {
   const provider = currentData?.provider;
   if (!provider) return "#";
@@ -329,12 +395,14 @@ function renderReport() {
   const rows = buildReportRows();
   renderRows(els.profileRows, rows.profile);
   renderRows(els.ratingRows, rows.ratings);
+  renderMetricCards(buildMetricGroups());
   renderRows(els.metricRows, rows.metrics);
   els.previewState.textContent = currentData.provider.state || "--";
   els.medicareLink.href = medicareUrl();
   els.emptyState.classList.add("hidden");
   els.reportBody.classList.remove("hidden");
   els.downloadBtn.disabled = false;
+  els.wordBtn.disabled = false;
   refreshIcons();
 }
 
@@ -359,6 +427,7 @@ async function handleLookup(event) {
   }
 
   els.downloadBtn.disabled = true;
+  els.wordBtn.disabled = true;
   setStatus("Fetching CMS facility, claims, and average data...");
 
   try {
@@ -376,6 +445,8 @@ async function handleLookup(event) {
     if (lookupId !== activeLookupId) return;
     currentData = null;
     els.downloadBtn.disabled = true;
+    els.wordBtn.disabled = true;
+    els.metricCards.innerHTML = "";
     els.reportBody.classList.add("hidden");
     els.emptyState.classList.remove("hidden");
     setStatus(error.message, "error");
@@ -427,6 +498,10 @@ function addPdfRows(doc, title, rows, y) {
 
 function downloadPdf() {
   if (!currentData) return;
+  if (!window.jspdf?.jsPDF) {
+    setStatus("PDF export library did not load. Check your connection and refresh.", "error");
+    return;
+  }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -467,7 +542,188 @@ function downloadPdf() {
   doc.save(`${name || "facility"}-assessment-snapshot.pdf`);
 }
 
+function reportFilename(extension) {
+  const name = buildReportRows().profile[0]?.[1] || "facility";
+  const slug = name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+  return `${slug || "facility"}-assessment-snapshot.${extension}`;
+}
+
+function makeWordTable(rows) {
+  const {
+    BorderStyle,
+    Paragraph,
+    ShadingType,
+    Table,
+    TableCell,
+    TableLayoutType,
+    TableRow,
+    TextRun,
+    VerticalAlign,
+    WidthType,
+  } = window.docx;
+  const borders = {
+    top: { style: BorderStyle.SINGLE, color: "D7E0DC", size: 4 },
+    bottom: { style: BorderStyle.SINGLE, color: "D7E0DC", size: 4 },
+    left: { style: BorderStyle.SINGLE, color: "D7E0DC", size: 4 },
+    right: { style: BorderStyle.SINGLE, color: "D7E0DC", size: 4 },
+    insideHorizontal: { style: BorderStyle.SINGLE, color: "D7E0DC", size: 4 },
+    insideVertical: { style: BorderStyle.SINGLE, color: "D7E0DC", size: 4 },
+  };
+
+  return new Table({
+    width: { size: 9360, type: WidthType.DXA },
+    columnWidths: [3600, 5760],
+    layout: TableLayoutType.FIXED,
+    borders,
+    rows: rows.map(
+      ([label, value]) =>
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 3600, type: WidthType.DXA },
+              verticalAlign: VerticalAlign.CENTER,
+              shading: { fill: "F1F5F3", type: ShadingType.CLEAR },
+              margins: { top: 110, bottom: 110, left: 140, right: 140 },
+              children: [
+                new Paragraph({
+                  spacing: { before: 0, after: 0 },
+                  children: [new TextRun({ text: label, bold: true, color: "44504C", size: 19 })],
+                }),
+              ],
+            }),
+            new TableCell({
+              width: { size: 5760, type: WidthType.DXA },
+              verticalAlign: VerticalAlign.CENTER,
+              margins: { top: 110, bottom: 110, left: 140, right: 140 },
+              children: [
+                new Paragraph({
+                  spacing: { before: 0, after: 0 },
+                  children: [new TextRun({ text: valueOrDash(value), color: "17201E", size: 20 })],
+                }),
+              ],
+            }),
+          ],
+        }),
+    ),
+  });
+}
+
+function makeWordSection(title, rows) {
+  const { Paragraph, TextRun } = window.docx;
+  return [
+    new Paragraph({
+      spacing: { before: 260, after: 90 },
+      children: [
+        new TextRun({
+          text: title.toUpperCase(),
+          bold: true,
+          color: "0A3F37",
+          size: 18,
+          characterSpacing: 40,
+        }),
+      ],
+    }),
+    makeWordTable(rows),
+  ];
+}
+
+async function downloadWord() {
+  if (!currentData) return;
+  if (!window.docx) {
+    setStatus("Word export library did not load. Check your connection and refresh.", "error");
+    return;
+  }
+
+  try {
+    const {
+      AlignmentType,
+      Document,
+      ExternalHyperlink,
+      Packer,
+      Paragraph,
+      TextRun,
+    } = window.docx;
+    const rows = buildReportRows();
+    const state = currentData.provider.state || "--";
+    const link = medicareUrl();
+    const doc = new Document({
+      creator: "INFINITE - Managed by MEDELITE",
+      title: `Facility Assessment Snapshot ${state}`,
+      sections: [
+        {
+          properties: {
+            page: {
+              margin: { top: 900, right: 1080, bottom: 900, left: 1080 },
+            },
+          },
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 70 },
+              children: [
+                new TextRun({
+                  text: "INFINITE - Managed by MEDELITE",
+                  bold: true,
+                  color: "0A3F37",
+                  size: 23,
+                }),
+              ],
+            }),
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 220 },
+              children: [
+                new TextRun({
+                  text: `FACILITY ASSESSMENT SNAPSHOT  ${state}`,
+                  bold: true,
+                  color: "17201E",
+                  size: 30,
+                }),
+              ],
+            }),
+            ...makeWordSection("Facility Profile", rows.profile),
+            ...makeWordSection("Star Ratings", rows.ratings),
+            ...makeWordSection("Hospitalization & ED Metrics", rows.metrics),
+            new Paragraph({
+              spacing: { before: 240, after: 40 },
+              children: [
+                new ExternalHyperlink({
+                  link,
+                  children: [
+                    new TextRun({
+                      text: "Medicare Care Compare source profile",
+                      style: "Hyperlink",
+                    }),
+                  ],
+                }),
+              ],
+            }),
+            new Paragraph({
+              spacing: { before: 0, after: 0 },
+              children: [new TextRun({ text: link, color: "66706D", size: 17 })],
+            }),
+          ],
+        },
+      ],
+    });
+
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = reportFilename("docx");
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    console.error(error);
+    setStatus("Unable to generate the Word document. Please refresh and try again.", "error");
+  }
+}
+
 els.lookupForm.addEventListener("submit", handleLookup);
 els.manualForm.addEventListener("input", renderReport);
 els.downloadBtn.addEventListener("click", downloadPdf);
+els.wordBtn.addEventListener("click", downloadWord);
 refreshIcons();
